@@ -126,7 +126,21 @@ LF_2D bwd() {
 	return beta;
 }
 
-LF_2D xi_t(int t, const LF_2D &alpha, const LF_2D &beta) {
+LF_2D fwd_bwd(const LF_2D &alpha, const LF_2D &beta) {
+	LF_2D gamma(obs.size(), vector<long double>(N, 0.0));
+	for(int t=0; t<obs.size(); ++t) {
+		long double sum = 0;
+		for(int i=0; i<N; ++i) {
+			gamma[t][i] = alpha[t][i] * beta[t][i];
+			sum = sum + gamma[t][i];
+		}
+		for(int i=0; i<N; ++i)
+			gamma[t][i] = gamma[t][i] / sum;
+	}
+	return gamma;
+}
+
+LF_2D xi(int t, const LF_2D &alpha, const LF_2D &beta) {
 	LF_2D xi(N, vector<long double>(N, 0.0));
 	long double sum = 0.0;
 	for(int i=0; i<N; ++i)
@@ -143,10 +157,44 @@ LF_2D xi_t(int t, const LF_2D &alpha, const LF_2D &beta) {
 void optimize() {
 	LF_2D alpha = fwd();
 	LF_2D beta = bwd();
+	LF_2D gamma = fwd_bwd(alpha, beta);
+	
+	// Coculate new better model
+	LF_2D A_son(N, vector<long double>(N, 0.0));
+	vector<long double> A_mom(N, 0.0);
+	LF_2D B_son(N, vector<long double>(M, 0.0));
+	vector<long double> B_mom(N, 0.0);
+	vector<long double> n_pi(N, 0.0);
 
-	for(int i=0; i<obs.size()-1; ++i) {
-		//
+	// Count transition probability
+	for(int t=0; t<obs.size()-1; ++t) {
+		LF_2D xi_t = xi(t, alpha, beta);
+		for(int i=0; i<N; ++i) {
+			for(int j=0; j<N; ++j)
+				A_son[i][j] = A_son[i][j] + xi_t[i][j];
+			A_mom[i] = A_mom[i] + gamma[t][i];
+		}
 	}
+	
+	// Count emmision probability
+	for(int t=0; t<obs.size(); ++t)
+		for(int j=0; j<N; ++j) {
+			B_son[j][obs[t]] = B_son[j][obs[t]] + gamma[t][j];
+			B_mom[j] = B_mom[j] + gamma[t][j];
+		}
+
+	// Count initial state distribution
+	for(int i=0; i<N; ++i)
+		n_pi[i] = gamma[0][i];
+
+	// Assign new better model
+	for(int i=0; i<N; ++i)
+		for(int j=0; j<N; ++j)
+			A[i][j] = A_son[i][j] / A_mom[i];
+	for(int i=0; i<N; ++i)
+		for(int j=0; j<M; ++j)
+			B[i][j] = B_son[i][j] / B_mom[i];
+	pi = n_pi;
 }
 
 // Helper function
@@ -205,7 +253,7 @@ int main() {
 	read_input();
 	random_init_model();
 
-	for(int i=0; i<10; ++i) {
+	for(int i=0; i<1; ++i) {
 		optimize();
 	}
 
