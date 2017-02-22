@@ -20,7 +20,9 @@ long double input_min;
 // Model
 vector<int> obs;
 LF_2D A(N, vector<long double>(N, 0.0));
+LF_2D log_A(N, vector<long double>(N, 0.0));
 LF_2D B(N, vector<long double>(M, 0.0));
+LF_2D log_B(N, vector<long double>(M, 0.0));
 vector<long double> pi(N, 0);
 
 // Init function
@@ -92,78 +94,88 @@ void random_init_model() {
 inline long double mul(long double a, long double b) {
 	return a + b;
 }
+inline long double div(long double a, long double b) {
+	return a - b;
+}
 inline long double add(long double a, long double b) {
-	static long double logEPS = -log(EPS);
-	if( b > a )
-		swap(a, b);
-	long double diff = b - a;
-	if( diff < logEPS )
-		return a;
-	return a + log(1.0 + exp(diff));
+	if( b > a ) swap(a, b);
+	return a + log(1.0 + exp(b-a));
 }
 
 LF_2D fwd() {
-	LF_2D alpha(obs.size(), vector<long double>(N, 0.0));
+	LF_2D alpha(obs.size(), vector<long double>(N));
 	for(int i=0; i<N; ++i)
-		alpha[0][i] = pi[i] * B[i][obs[0]];
+		alpha[0][i] = log(pi[i] * B[i][obs[0]]);
 	for(int t=1; t<obs.size(); ++t)
 		for(int j=0; j<N; ++j) {
-			for(int i=0; i<N; ++i)
-				alpha[t][j] = alpha[t][j] + alpha[t-1][i] * A[i][j];
-			alpha[t][j] = alpha[t][j] * B[j][obs[t]];
+			alpha[t][j] = mul(alpha[t-1][0], log_A[0][j]);
+			for(int i=1; i<N; ++i)
+				alpha[t][j] = add(alpha[t][j], mul(alpha[t-1][i], log_A[i][j]));
+			alpha[t][j] = mul(alpha[t][j], log_B[j][obs[t]]);
 		}
 	return alpha;
 }
 
 LF_2D bwd() {
-	LF_2D beta(obs.size(), vector<long double>(N, 0.0));
+	LF_2D beta(obs.size(), vector<long double>(N));
 	for(int i=0; i<N; ++i)
-		beta[obs.size()-1][i] = 1.0;
+		beta[obs.size()-1][i] = log(1.0);
 	for(int t=obs.size()-2; t>=0; --t)
-		for(int i=0; i<N; ++i)
-			for(int j=0; j<N; ++j)
-				beta[t][i] = beta[t][i] + A[i][j] * B[j][obs[t+1]] * beta[t+1][j];
+		for(int i=0; i<N; ++i) {
+			beta[t][i] = mul(log_A[i][0], mul(log_B[0][obs[t+1]], beta[t+1][0]));
+			for(int j=1; j<N; ++j)
+				beta[t][i] = add(beta[t][i], mul(log_A[i][j], mul(log_B[j][obs[t+1]], beta[t+1][j])));
+		}
 	return beta;
 }
 
 LF_2D fwd_bwd(const LF_2D &alpha, const LF_2D &beta) {
-	LF_2D gamma(obs.size(), vector<long double>(N, 0.0));
+	LF_2D gamma(obs.size(), vector<long double>(N));
 	for(int t=0; t<obs.size(); ++t) {
 		long double sum = 0;
 		for(int i=0; i<N; ++i) {
-			gamma[t][i] = alpha[t][i] * beta[t][i];
-			sum = sum + gamma[t][i];
+			gamma[t][i] = mul(alpha[t][i], beta[t][i]);
+			sum = (i==0) ? gamma[t][i] : add(sum, gamma[t][i]);
 		}
 		for(int i=0; i<N; ++i)
-			gamma[t][i] = gamma[t][i] / sum;
+			gamma[t][i] = div(gamma[t][i], sum);
 	}
 	return gamma;
 }
 
 LF_2D xi(int t, const LF_2D &alpha, const LF_2D &beta) {
-	LF_2D xi(N, vector<long double>(N, 0.0));
-	long double sum = 0.0;
+	LF_2D xi(N, vector<long double>(N));
+	long double sum = -1;
 	for(int i=0; i<N; ++i)
 		for(int j=0; j<N; ++j) {
-			xi[i][j] = alpha[t][i] * A[i][j] * B[j][obs[t+1]] * beta[t+1][j];
-			sum += xi[i][j];
+			xi[i][j] = mul(alpha[t][i], mul(log_A[i][j], mul(log_B[j][obs[t+1]], beta[t+1][j])));
+			if( i==0 && j==0 ) sum = xi[i][j];
+			else sum = add(sum, xi[i][j]);
 		}
 	for(auto &xi_ti : xi)
 		for(auto &xi_tij : xi_ti)
-			xi_tij /= sum;
+			xi_tij = div(xi_tij, sum);
 	return xi;
 }
 
 void optimize() {
+	for(int i=0; i<N; ++i)
+		for(int j=0; j<N; ++j)
+			log_A[i][j] = log(A[i][j]);
+	for(int i=0; i<N; ++i)
+		for(int j=0; j<M; ++j)
+			log_B[i][j] = log(B[i][j]);
+
 	LF_2D alpha = fwd();
 	LF_2D beta = bwd();
 	LF_2D gamma = fwd_bwd(alpha, beta);
-	
+
 	// Coculate new better model
-	LF_2D A_son(N, vector<long double>(N, 0.0));
-	vector<long double> A_mom(N, 0.0);
-	LF_2D B_son(N, vector<long double>(M, 0.0));
-	vector<long double> B_mom(N, 0.0);
+	LF_2D A_son(N, vector<long double>(N));
+	vector<long double> A_mom(N);
+	LF_2D B_son(N, vector<long double>(M));
+	vector<bool> B_son_visited(M, false);
+	vector<long double> B_mom(N);
 	vector<long double> n_pi(N, 0.0);
 
 	// Count transition probability
@@ -171,17 +183,24 @@ void optimize() {
 		LF_2D xi_t = xi(t, alpha, beta);
 		for(int i=0; i<N; ++i) {
 			for(int j=0; j<N; ++j)
-				A_son[i][j] = A_son[i][j] + xi_t[i][j];
-			A_mom[i] = A_mom[i] + gamma[t][i];
+				if( t==0 ) A_son[i][j] = xi_t[i][j];
+				else A_son[i][j] = add(A_son[i][j], xi_t[i][j]);
+			if( t==0 ) A_mom[i] = gamma[t][i];
+			else A_mom[i] = add(A_mom[i], gamma[t][i]);
 		}
 	}
 	
 	// Count emmision probability
-	for(int t=0; t<obs.size(); ++t)
+	for(int t=0; t<obs.size(); ++t) {
 		for(int j=0; j<N; ++j) {
-			B_son[j][obs[t]] = B_son[j][obs[t]] + gamma[t][j];
-			B_mom[j] = B_mom[j] + gamma[t][j];
+			if( !B_son_visited[obs[t]] ) B_son[j][obs[t]] = gamma[t][j];
+			else B_son[j][obs[t]] = add(B_son[j][obs[t]], gamma[t][j]);
+
+			if( t==0 ) B_mom[j] = gamma[t][j];
+			else B_mom[j] = add(B_mom[j], gamma[t][j]);
 		}
+		B_son_visited[obs[t]] = true;
+	}
 
 	// Count initial state distribution
 	for(int i=0; i<N; ++i)
@@ -190,11 +209,12 @@ void optimize() {
 	// Assign new better model
 	for(int i=0; i<N; ++i)
 		for(int j=0; j<N; ++j)
-			A[i][j] = A_son[i][j] / A_mom[i];
+			A[i][j] = exp(div(A_son[i][j], A_mom[i]));
 	for(int i=0; i<N; ++i)
 		for(int j=0; j<M; ++j)
-			B[i][j] = B_son[i][j] / B_mom[i];
-	pi = n_pi;
+			B[i][j] = exp(div(B_son[i][j], B_mom[i]));
+	for(int i=0; i<N; ++i)
+		pi[i] = exp(n_pi[i]);
 }
 
 // Helper function
