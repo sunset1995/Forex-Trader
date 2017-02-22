@@ -10,6 +10,8 @@
 #define INPUT_FILE_NAME "./datas/in-2016-02"
 using namespace std;
 
+typedef vector<vector<long double>> LF_2D;
+
 // Training datas
 vector<long double> input;
 long double input_max;
@@ -17,8 +19,8 @@ long double input_min;
 
 // Model
 vector<int> obs;
-vector< vector<long double> > A(N, vector<long double>(N, 0.0));
-vector< vector<long double> > B(N, vector<long double>(M, 0.0));
+LF_2D A(N, vector<long double>(N, 0.0));
+LF_2D B(N, vector<long double>(M, 0.0));
 vector<long double> pi(N, 0);
 
 // Init function
@@ -100,8 +102,8 @@ inline long double add(long double a, long double b) {
 	return a + log(1.0 + exp(diff));
 }
 
-vector<vector<long double>> fwd() {
-	vector<vector<long double>> alpha(obs.size(), vector<long double>(N, 0.0));
+LF_2D fwd() {
+	LF_2D alpha(obs.size(), vector<long double>(N, 0.0));
 	for(int i=0; i<N; ++i)
 		alpha[0][i] = pi[i] * B[i][obs[0]];
 	for(int t=1; t<obs.size(); ++t)
@@ -113,8 +115,8 @@ vector<vector<long double>> fwd() {
 	return alpha;
 }
 
-vector<vector<long double>> bwd() {
-	vector< vector<long double> > beta(obs.size(), vector<long double>(N, 0.0));
+LF_2D bwd() {
+	LF_2D beta(obs.size(), vector<long double>(N, 0.0));
 	for(int i=0; i<N; ++i)
 		beta[obs.size()-1][i] = 1.0;
 	for(int t=obs.size()-2; t>=0; --t)
@@ -124,9 +126,27 @@ vector<vector<long double>> bwd() {
 	return beta;
 }
 
+LF_2D xi_t(int t, const LF_2D &alpha, const LF_2D &beta) {
+	LF_2D xi(N, vector<long double>(N, 0.0));
+	long double sum = 0.0;
+	for(int i=0; i<N; ++i)
+		for(int j=0; j<N; ++j) {
+			xi[i][j] = alpha[t][i] * A[i][j] * B[j][obs[t+1]] * beta[t+1][j];
+			sum += xi[i][j];
+		}
+	for(auto &xi_ti : xi)
+		for(auto &xi_tij : xi_ti)
+			xi_tij /= sum;
+	return xi;
+}
+
 void optimize() {
-	vector< vector<long double> > alpha = fwd();
-	vector< vector<long double> > beta = bwd();
+	LF_2D alpha = fwd();
+	LF_2D beta = bwd();
+
+	for(int i=0; i<obs.size()-1; ++i) {
+		//
+	}
 }
 
 // Helper function
@@ -181,7 +201,7 @@ void checksum_model() {
 
 int main() {
 
-	srand(time(NULL));
+	srand(850311);
 	read_input();
 	random_init_model();
 
