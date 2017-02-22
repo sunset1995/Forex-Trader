@@ -4,8 +4,9 @@
 #include <ctime>
 #include <vector>
 #include <algorithm>
+#define EPS 1e-12
 #define N 6
-#define M 10
+#define M 11
 #define INPUT_FILE_NAME "./datas/in-2016-02"
 using namespace std;
 
@@ -15,13 +16,13 @@ long double input_max;
 long double input_min;
 
 // Model
+vector<int> obs;
 vector< vector<long double> > A(N, vector<long double>(N, 0.0));
 vector< vector<long double> > B(N, vector<long double>(M, 0.0));
 vector<long double> pi(N, 0);
 
 // Init function
 void read_input() {
-	
 	FILE *in = fopen(INPUT_FILE_NAME, "r");
 	if( !in ) {
 		fprintf(stderr, "%s\n", "Training datas not found.");
@@ -43,6 +44,26 @@ void read_input() {
 		input_min = min(input_min, r);
 	}
 
+	long double avg = 0;
+	for(auto r : input)
+		avg += r;
+	avg /= input.size();
+
+	long double stdev = 0;
+	for(auto r : input)
+		stdev += (r-avg) * (r-avg);
+	stdev = sqrt(stdev / input.size());
+
+	obs = vector<int>(input.size());
+	long double rng = stdev / (M>>1);
+	long double base = rng / 2.0;
+	for(int i=0; i<input.size(); ++i)
+		if( fabs(input[i]) < base )
+			obs[i] = 0;
+		else if( input[i] > 0 )
+			obs[i] = min(int((input[i]-base)/rng) + 1, (M>>1));
+		else if( input[i] < 0 )
+			obs[i] = min(int((-input[i]-base)/rng) + 5, M-1);
 }
 
 void random_distribution(vector<long double> &vec) {
@@ -56,7 +77,6 @@ void random_distribution(vector<long double> &vec) {
 }
 
 void random_init_model() {
-
 	for(auto &ai : A)
 		random_distribution(ai);
 
@@ -64,30 +84,55 @@ void random_init_model() {
 		random_distribution(bi);
 
 	random_distribution(pi);
+}
 
+// Training
+inline long double mul(long double a, long double b) {
+	return a + b;
+}
+inline long double add(long double a, long double b) {
+	static long double logEPS = -log(EPS);
+	if( b > a )
+		swap(a, b);
+	long double diff = b - a;
+	if( diff < logEPS )
+		return a;
+	return a + log(1.0 + exp(diff));
+}
+
+vector<vector<long double>> fwd() {
+	vector<vector<long double>> alpha(input.size(), vector<long double>(N));
+	for(int i=0; i<N; ++i)
+		alpha[0][i] = pi[i] * B[i][input[0]];
+	return alpha;
+}
+
+void optimize() {
+	//vector< vector<long double> > alpha = fwd();
+	//vector< vector<long double> > beta = bwd();
 }
 
 // Helper function
 void show_model() {
-	puts("A");
+	puts("A: transition probability");
 	for(auto &ai : A) {
 		for(auto &aij : ai)
-			printf("%Lf ", aij);
+			printf(" %Lf", aij);
 		puts("");
 	}
 	puts("");
 
-	puts("B");
+	puts("B: emission probability");
 	for(auto &bi : B) {
 		for(auto &bij : bi)
-			printf("%Lf ", bij);
+			printf(" %Lf", bij);
 		puts("");
 	}
 	puts("");
 
-	puts("pi");
+	puts("pi: initial state distribution");
 	for(auto &p : pi)
-		printf("%Lf ", p);
+		printf(" %Lf", p);
 	puts("");
 }
 
@@ -122,6 +167,10 @@ int main() {
 	srand(time(NULL));
 	read_input();
 	random_init_model();
+
+	for(int i=0; i<10; ++i) {
+		optimize();
+	}
 
 	show_model();
 	checksum_model();
