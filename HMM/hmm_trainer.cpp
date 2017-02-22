@@ -101,15 +101,26 @@ inline long double add(long double a, long double b) {
 }
 
 vector<vector<long double>> fwd() {
-	vector<vector<long double>> alpha(input.size(), vector<long double>(N));
+	vector<vector<long double>> alpha(input.size(), vector<long double>(N, 0.0));
 	for(int i=0; i<N; ++i)
-		alpha[0][i] = pi[i] * B[i][input[0]];
+		alpha[0][i] = pi[i] * B[i][obs[0]];
+	for(int t=1; t<obs.size(); ++t)
+		for(int j=0; j<N; ++j) {
+			for(int i=0; i<N; ++i)
+				alpha[t][j] = alpha[t][j] + alpha[t-1][i] * A[i][j];
+			alpha[t][j] = alpha[t][j] * B[j][obs[t]];
+		}
 	return alpha;
 }
 
 void optimize() {
-	//vector< vector<long double> > alpha = fwd();
+	vector< vector<long double> > alpha = fwd();
 	//vector< vector<long double> > beta = bwd();
+	for(int i=0; i<10; ++i) {
+		for(auto &alpha_ti : alpha[i])
+			fprintf(stderr, "%.20Lf ", alpha_ti);
+		fprintf(stderr, "\n");
+	}
 }
 
 // Helper function
