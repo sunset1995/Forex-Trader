@@ -80,6 +80,11 @@ void random_distribution(vector<long double> &vec) {
 		v /= sum;
 }
 
+void uniform_distribution(vector<long double> &vec) {
+	for(auto &v : vec)
+		v = (long double)1 / vec.size();
+}
+
 void random_init_model() {
 	for(auto &ai : A)
 		random_distribution(ai);
@@ -158,7 +163,7 @@ LF_2D xi(int t, const LF_2D &alpha, const LF_2D &beta) {
 	return xi;
 }
 
-void optimize() {
+long double optimize() {
 	for(int i=0; i<N; ++i)
 		for(int j=0; j<N; ++j)
 			log_A[i][j] = log(A[i][j]);
@@ -207,14 +212,26 @@ void optimize() {
 		n_pi[i] = gamma[0][i];
 
 	// Assign new better model
+	long double delta = 0.0;
 	for(int i=0; i<N; ++i)
-		for(int j=0; j<N; ++j)
-			A[i][j] = exp(div(A_son[i][j], A_mom[i]));
+		for(int j=0; j<N; ++j) {
+			long double n_val = exp(div(A_son[i][j], A_mom[i]));
+			delta += fabs(A[i][j] - n_val);
+			A[i][j] = n_val;
+		}
 	for(int i=0; i<N; ++i)
-		for(int j=0; j<M; ++j)
-			B[i][j] = exp(div(B_son[i][j], B_mom[i]));
-	for(int i=0; i<N; ++i)
-		pi[i] = exp(n_pi[i]);
+		for(int j=0; j<M; ++j) {
+			long double n_val = exp(div(B_son[i][j], B_mom[i]));
+			delta += fabs(B[i][j] - n_val);
+			B[i][j] = n_val;
+		}
+	for(int i=0; i<N; ++i) {
+		long double n_val = exp(n_pi[i]);
+		delta += fabs(pi[i] - n_val);
+		pi[i] = n_val;
+	}
+
+	return delta;
 }
 
 // Helper function
@@ -241,13 +258,13 @@ void show_model() {
 	puts("");
 }
 
-void checksum_model() {
+bool checksum_model() {
 	for(auto &ai : A) {
 		long double sum = 0;
 		for(auto &aij : ai)
 			sum += aij;
 		if( fabs(sum - 1.0) > 1e-9 )
-			fprintf(stderr, "checksum failed\n");
+			return false;
 	}
 
 	for(auto &bi : B) {
@@ -255,30 +272,34 @@ void checksum_model() {
 		for(auto &bij : bi)
 			sum += bij;
 		if( fabs(sum - 1.0) > 1e-9 )
-			fprintf(stderr, "checksum failed\n");
+			return false;
 	}
 
 	long double sum = 0;
 	for(auto &p : pi)
 		sum += p;
 	if( fabs(sum - 1.0) > 1e-9 )
-		fprintf(stderr, "checksum failed\n");
+		return false;
+	return true;
 }
 
 
 
 int main() {
 
-	srand(850311);
+	srand(time(NULL));
 	read_input();
 	random_init_model();
 
-	for(int i=0; i<1; ++i) {
-		optimize();
+	for(int i=1; i<=1000; ++i) {
+		long double delta = optimize();
+		bool check = checksum_model();
+		fprintf(stderr, "iteration %3d:  checksum=%s  /  delta=%20.20Lf\n",
+			i, check ? "PASS" : "FAIL", delta);
+		if( fabs(delta) < 1e-4 ) break;
 	}
 
 	show_model();
-	checksum_model();
 
 	return 0;
 
